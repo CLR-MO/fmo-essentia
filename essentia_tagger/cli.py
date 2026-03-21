@@ -26,8 +26,11 @@ Usage examples:
 """
 
 import argparse
+import json
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 def main():
@@ -63,6 +66,13 @@ def main():
                         help="Number of results to POST per bulk update call (default: 20)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Analyze files but do not write anything to the API")
+    parser.add_argument("--delay", type=float, default=0.0, metavar="SECONDS",
+                        help="Sleep this many seconds between files to allow CPU cooldown (default: 0)")
+    _default_threads = max(1, (os.cpu_count() or 2) // 2)
+    parser.add_argument("--tf-threads", type=int, default=_default_threads, metavar="N",
+                        help=f"Limit TensorFlow to N CPU threads (0 = unlimited, "
+                             f"default: half your CPU count = {_default_threads}). "
+                             "Lower values reduce sustained CPU load at the cost of speed.")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -82,7 +92,41 @@ def main():
 
     # ── Imports (deferred so --help is fast) ─────────────────────────────────
     from .api import ClrmoClient
-    from .analyzer import analyze_file
+
+    # Build the environment for subprocess workers.  TF thread limits must be
+    # set before TensorFlow initialises, so we pass them via env vars inherited
+    # by each subprocess rather than via Python API calls.
+    worker_env = os.environ.copy()
+    if args.tf_threads != 0:
+        worker_env["TF_NUM_INTEROP_THREADS"] = str(args.tf_threads)
+        worker_env["TF_NUM_INTRAOP_THREADS"] = str(args.tf_threads)
+
+    def _analyze(path: str) -> dict:
+        """Run analyze_file in a subprocess to isolate segfaults from bad files."""
+        worker_args = json.dumps({
+            "path": path,
+            "models_dir": str(args.models_dir) if args.models_dir else None,
+            "mood_threshold": args.mood_threshold,
+            "mood_thresholds": mood_thresholds or None,
+            "tag_prefix": args.tag_prefix,
+            "run_bpm": not args.no_bpm,
+            "run_key": not args.no_key,
+            "run_mood": not args.no_mood,
+            "single_pass": args.single_pass,
+        })
+        proc = subprocess.run(
+            [sys.executable, "-m", "essentia_tagger.analyzer", worker_args],
+            capture_output=True,
+            text=True,
+            env=worker_env,
+            timeout=300,
+        )
+        if proc.returncode != 0:
+            stderr = proc.stderr.strip().splitlines()
+            # Surface the last non-empty line of stderr as the error message
+            msg = next((l for l in reversed(stderr) if l.strip()), f"exit code {proc.returncode}")
+            raise RuntimeError(msg)
+        return json.loads(proc.stdout)
 
     client = ClrmoClient(base_url=args.url)
 
@@ -100,52 +144,48 @@ def main():
         sys.exit(1)
 
     # ── Collect entities ──────────────────────────────────────────────────────
-    print(f"Fetching audio entities{' (query: ' + args.query + ')' if args.query else ''}...")
-
-    entities = list(client.iter_audio_entities(query=args.query, db=args.db))
-
-    # Keep only entities with a non-empty path
-    entities = [e for e in entities if e.get("path")]
-    print(f"Found {len(entities)} audio entities with valid paths.")
-
+    query = args.query
     if args.skip_analyzed:
-        # Would need full entity details to check attributes; for simplicity we
-        # let the user pre-filter via --query instead.
-        print("Note: --skip-analyzed not yet implemented; use --query to pre-filter.")
+        # -@essentia:=:1 → NOT IN (entities where essentia attribute = 1)
+        # This includes entities with no essentia attribute yet (unprocessed).
+        skip_filter = "-@essentia:=:1"
+        query = f"({query}) & {skip_filter}" if query else skip_filter
 
-    if not entities:
+    print(f"Fetching audio entities{' (query: ' + query + ')' if query else ''}...")
+
+    total, entities_iter = client.iter_audio_entities(query=query, db=args.db)
+    print(f"Found {total} audio entities.")
+
+    if not total:
         print("Nothing to do.")
         return
 
     # ── Analyze + collect updates ─────────────────────────────────────────────
-    total = len(entities)
     pending: list[dict] = []
     posted = 0
     failed = 0
+    i = 0
 
-    for i, entity in enumerate(entities, 1):
-        eid = entity["id"]
-        path = entity["path"]
-        name = entity.get("name") or entity.get("path", "")
+    for entity in entities_iter:
+        path = entity.get("path")
+        name = entity.get("name") or path or ""
+
+        if not path:
+            print(f"[{name}]  SKIP (no path)")
+            continue
+
+        i += 1
         prefix = f"[{i}/{total}] {name}"
 
         if not os.path.isfile(path):
             print(f"{prefix}  SKIP (file not found)")
             continue
 
+        eid = entity["id"]
+
         print(f"{prefix}  analyzing...", end="", flush=True)
         try:
-            result = analyze_file(
-                path,
-                models_dir=args.models_dir,
-                mood_threshold=args.mood_threshold,
-                mood_thresholds=mood_thresholds or None,
-                tag_prefix=args.tag_prefix,
-                run_bpm=not args.no_bpm,
-                run_key=not args.no_key,
-                run_mood=not args.no_mood,
-                single_pass=args.single_pass,
-            )
+            result = _analyze(path)
         except Exception as exc:
             print(f"  ERROR: {exc}")
             failed += 1
@@ -172,6 +212,9 @@ def main():
             for key, label in MOOD_KEYS:
                 if key in attrs:
                     score = attrs[key]
+                    if not isinstance(score, (int, float)):
+                        mood_parts.append(f"{label}={score}")
+                        continue
                     t = mood_thresholds.get(key, args.mood_threshold)
                     flag = "*" if score >= t else " "
                     t_note = f">{t}" if t != args.mood_threshold else ""
@@ -183,7 +226,11 @@ def main():
             for k, v in attrs.items():
                 print(f"    {k}: {v}")
 
+        attrs["essentia"] = 1
         pending.append({"id": eid, "tags": tags, "attributes": attrs})
+
+        if args.delay > 0 and i < total:
+            time.sleep(args.delay)
 
         # Post in batches
         if len(pending) >= args.batch_size:

@@ -1,0 +1,147 @@
+# models.toml — controls which Essentia models are downloaded and run.
+#
+# clrmo-download-models  reads this file to know what to fetch (~3.1 MB each).
+# clrmo-tag              reads this file to know what to analyze.
+#
+# Set  enabled = false  on any model to skip it for both download and analysis.
+#
+# Binary models output a single probability (0–1) stored as a float attribute.
+# Multiclass models output a probability per class; the winning class (and any
+# above threshold) are written as tags.
+
+# ── Mood / feel ──────────────────────────────────────────────────────────────
+
+[models.mood_happy]
+enabled = true
+path    = "classifiers/mood_happy/mood_happy-musicnn-msd-2.pb"
+type    = "binary"
+
+[models.mood_sad]
+enabled = true
+path    = "classifiers/mood_sad/mood_sad-musicnn-msd-2.pb"
+type    = "binary"
+
+[models.mood_relaxed]
+enabled = true
+path    = "classifiers/mood_relaxed/mood_relaxed-musicnn-msd-2.pb"
+type    = "binary"
+
+[models.mood_aggressive]
+enabled = true
+path    = "classifiers/mood_aggressive/mood_aggressive-musicnn-msd-2.pb"
+type    = "binary"
+
+[models.mood_party]
+enabled = true
+path    = "classifiers/mood_party/mood_party-musicnn-msd-2.pb"
+type    = "binary"
+
+[models.mood_acoustic]
+enabled = true
+path    = "classifiers/mood_acoustic/mood_acoustic-musicnn-msd-2.pb"
+type    = "binary"
+
+[models.mood_electronic]
+enabled = true
+path    = "classifiers/mood_electronic/mood_electronic-musicnn-msd-2.pb"
+type    = "binary"
+
+# MIREX 5-cluster mood classification (multi-class, version msd-1).
+# Classes are broad mood clusters from the MIREX challenge:
+#   rousing   = passionate, rousing, confident, boisterous, rowdy
+#   cheerful  = rollicking, cheerful, fun, sweet, amiable
+#   brooding  = literate, poignant, wistful, bittersweet, brooding
+#   quirky    = humorous, silly, campy, quirky, whimsical, witty, wry
+#   intense   = aggressive, fiery, tense, intense, volatile, visceral
+[models.moods_mirex]
+enabled    = true
+path       = "classifiers/moods_mirex/moods_mirex-musicnn-msd-1.pb"
+type       = "multiclass"
+output     = "model/Softmax"
+tag_prefix = "/ mood /"
+classes    = ["rousing", "cheerful", "brooding", "quirky", "intense"]
+
+# ── Rhythm ───────────────────────────────────────────────────────────────────
+
+[models.danceability]
+enabled    = true
+path       = "classifiers/danceability/danceability-musicnn-msd-2.pb"
+type       = "multiclass"
+output     = "model/Sigmoid"
+tag_prefix = "/ music /"
+classes    = ["danceable", "not_danceable"]
+
+# ── Voice / instrumentation ───────────────────────────────────────────────────
+
+[models.voice_instrumental]
+enabled    = true
+path       = "classifiers/voice_instrumental/voice_instrumental-musicnn-msd-2.pb"
+type       = "multiclass"
+output     = "model/Sigmoid"
+tag_prefix = "/ music /"
+classes    = ["instrumental", "vocal"]
+
+[models.gender]
+enabled    = true
+path       = "classifiers/gender/gender-musicnn-msd-2.pb"
+type       = "multiclass"
+output     = "model/Sigmoid"
+tag_prefix = "/ vocal /"
+classes    = ["female", "male"]
+
+# ── Tonality ─────────────────────────────────────────────────────────────────
+
+[models.tonal_atonal]
+enabled    = true
+path       = "classifiers/tonal_atonal/tonal_atonal-musicnn-msd-2.pb"
+type       = "multiclass"
+output     = "model/Sigmoid"
+tag_prefix = "/ music /"
+classes    = ["atonal", "tonal"]
+
+# ── Genre (multi-class) ──────────────────────────────────────────────────────
+# These output a probability per class via Softmax.
+# The top-scoring class is stored as an attribute; classes above threshold become tags.
+
+[models.genre_dortmund]
+enabled    = true
+path       = "classifiers/genre_dortmund/genre_dortmund-musicnn-msd-2.pb"
+type       = "multiclass"
+output     = "model/Sigmoid"
+tag_prefix = "/ genre /"
+classes    = ["alternative", "blues", "electronic", "folkcountry", "funksoulrnb", "jazz", "pop", "raphiphop", "rock"]
+
+[models.genre_electronic]
+enabled    = true
+path       = "classifiers/genre_electronic/genre_electronic-musicnn-msd-2.pb"
+type       = "multiclass"
+output     = "model/Sigmoid"
+tag_prefix = "/ genre / electronic /"
+classes    = ["ambient", "dnb", "house", "techno", "trance"]
+
+[models.genre_rosamerica]
+enabled    = true
+path       = "classifiers/genre_rosamerica/genre_rosamerica-musicnn-msd-2.pb"
+type       = "multiclass"
+output     = "model/Sigmoid"
+tag_prefix = "/ genre /"
+classes    = ["classical", "dance", "hiphop", "jazz", "pop", "rnb", "rock", "speech"]
+
+[models.genre_tzanetakis]
+enabled    = true
+path       = "classifiers/genre_tzanetakis/genre_tzanetakis-musicnn-msd-2.pb"
+type       = "multiclass"
+output     = "model/Sigmoid"
+tag_prefix = "/ genre /"
+classes    = ["blues", "classical", "country", "disco", "hiphop", "jazz", "metal", "pop", "reggae", "rock"]
+
+# ── Loop role (disabled by default — only useful for sample/loop libraries) ──
+# Classifies the role of a music loop: bass, chords, fx, melody, percussion.
+
+[models.fs_loop_ds]
+enabled    = false
+path       = "classifiers/fs_loop_ds/fs_loop_ds-musicnn-msd-1.pb"
+type       = "multiclass"
+output     = "model/Softmax"
+tag_prefix = "/ loop /"
+classes    = ["bass", "chords", "fx", "melody", "percussion"]

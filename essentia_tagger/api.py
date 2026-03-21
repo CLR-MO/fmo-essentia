@@ -47,33 +47,42 @@ class ClrmoClient:
         self,
         query: str = "",
         db: str | None = None,
-        batch_size: int = 500,
+        batch_size: int = 1000,
     ):
-        """Yield all audio entities page by page.
+        """Return (total, generator) for all audio entities, paged by batch_size.
 
+        Fetches page 1 immediately so total is known before iteration begins.
         Always filters by '@filetype:=:audio' (using the entity column, so
         .webm audio is included correctly).  When a query is given it is
         AND'd with the filetype filter so non-audio entities (images, docs)
         are never returned even if the user query would match them.
         """
         effective_query = f"@filetype:=:audio & ({query})" if query else "@filetype:=:audio"
-        page = 1
-        while True:
-            result = self.query_entities(
-                query=effective_query,
-                fields="id,path,name,filetype",
-                page=page,
-                limit=batch_size,
-                db=db,
-            )
-            entities = result.get("entities", [])
-            if not entities:
-                break
-            yield from entities
-            total_pages = result.get("pagination", {}).get("totalPages", 1)
-            if page >= total_pages:
-                break
-            page += 1
+
+        first = self.query_entities(
+            query=effective_query,
+            fields="id,path,name,filetype",
+            page=1,
+            limit=batch_size,
+            db=db,
+        )
+        pagination = first.get("pagination", {})
+        total = pagination.get("total", 0)
+        total_pages = pagination.get("totalPages", 1)
+
+        def _gen():
+            yield from first.get("entities", [])
+            for page in range(2, total_pages + 1):
+                result = self.query_entities(
+                    query=effective_query,
+                    fields="id,path,name,filetype",
+                    page=page,
+                    limit=batch_size,
+                    db=db,
+                )
+                yield from result.get("entities", [])
+
+        return total, _gen()
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
