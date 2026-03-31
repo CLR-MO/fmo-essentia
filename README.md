@@ -4,6 +4,14 @@ Analyze music files with [Essentia](https://essentia.upf.edu) and write the
 results back to a [CLRMO](https://github.com/example/clrmo) entity database
 via the REST API.
 
+
+## Basic Usage
+Start REST api server on FMO app, then
+```sh
+python3 -m essentia_tagger.download_models
+python3 -m essentia_tagger.cli --skip-analyzed
+```
+
 ## What it detects
 
 ### Algorithmic (no model files needed)
@@ -115,8 +123,8 @@ If the `clrmo-tag` command isn't found after installing (entry points
 occasionally fail on very old pip), run the tool directly:
 
 ```bash
-python3 -m essentia_tagger.cli --help
 python3 -m essentia_tagger.download_models
+python3 -m essentia_tagger.cli --skip-analyzed
 ```
 
 ### Running without installing
@@ -127,8 +135,9 @@ If you don't want to install at all, just run from this directory:
 # Add the package to the Python path for this shell session
 export PYTHONPATH="$PWD:$PYTHONPATH"
 
-python3 -m essentia_tagger.cli --help
 python3 -m essentia_tagger.download_models
+python3 -m essentia_tagger.cli --skip-analyzed
+
 ```
 
 ## Usage

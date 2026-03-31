@@ -28,6 +28,7 @@ Usage examples:
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -75,6 +76,17 @@ def main():
                              "Lower values reduce sustained CPU load at the cost of speed.")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
+
+    # Graceful Ctrl+C handling
+    interrupted = False
+    def sigint_handler(signum, frame):
+        nonlocal interrupted
+        if interrupted:
+            # Second Ctrl+C: force exit
+            sys.exit(1)
+        interrupted = True
+        print("\nInterrupted. Finishing current file, then exiting...", file=sys.stderr)
+    signal.signal(signal.SIGINT, sigint_handler)
 
     # Parse per-mood threshold overrides: "electronic=0.75" → {"mood_electronic": 0.75}
     # "danceability" has no "mood_" prefix in the model name
@@ -166,92 +178,87 @@ def main():
     failed = 0
     i = 0
 
-    for entity in entities_iter:
-        path = entity.get("path")
-        name = entity.get("name") or path or ""
+    try:
+        for entity in entities_iter:
+            if interrupted:
+                break
 
-        if not path:
-            print(f"[{name}]  SKIP (no path)")
-            continue
+            path = entity.get("path")
+            name = entity.get("name") or path or ""
 
-        i += 1
-        prefix = f"[{i}/{total}] {name}"
+            if not path:
+                print(f"[{name}]  SKIP (no path)")
+                continue
 
-        if not os.path.isfile(path):
-            print(f"{prefix}  SKIP (file not found)")
-            continue
+            i += 1
+            prefix = f"[{i}/{total}] {name}"
 
-        eid = entity["id"]
+            if not os.path.isfile(path):
+                print(f"{prefix}  SKIP (file not found)")
+                continue
 
-        print(f"{prefix}  analyzing...", end="", flush=True)
-        try:
-            result = _analyze(path)
-        except Exception as exc:
-            print(f"  ERROR: {exc}")
-            failed += 1
-            continue
+            eid = entity["id"]
 
-        attrs = result["attributes"]
-        tags = result["tags"]
-        summary_parts = []
-        if "bpm" in attrs:
-            summary_parts.append(f"bpm={attrs['bpm']}")
-        if "key" in attrs:
-            summary_parts.append(f"key={attrs['key']} {attrs.get('scale','')}")
-        if tags:
-            summary_parts.append("tags=[" + ", ".join(t.split("/")[-1].strip() for t in tags) + "]")
-        print(f"  {', '.join(summary_parts) or 'no results'}")
+            print(f"{prefix}  analyzing...", end="", flush=True)
+            try:
+                result = _analyze(path)
+            except Exception as exc:
+                print(f"  ERROR: {exc}")
+                failed += 1
+                continue
 
-        if args.dry_run and not args.no_mood:
-            MOOD_KEYS = [
-                ("mood_happy", "happy"), ("mood_sad", "sad"), ("mood_relaxed", "relaxed"),
-                ("mood_aggressive", "aggr"), ("mood_party", "party"), ("mood_acoustic", "acou"),
-                ("mood_electronic", "elec"), ("danceability", "dance"),
-            ]
-            mood_parts = []
-            for key, label in MOOD_KEYS:
-                if key in attrs:
-                    score = attrs[key]
-                    if not isinstance(score, (int, float)):
-                        mood_parts.append(f"{label}={score}")
-                        continue
-                    t = mood_thresholds.get(key, args.mood_threshold)
-                    flag = "*" if score >= t else " "
-                    t_note = f">{t}" if t != args.mood_threshold else ""
-                    mood_parts.append(f"{label}={score:.2f}{flag}{t_note}")
-            if mood_parts:
-                print(f"  mood:  {' '.join(mood_parts)}  (default threshold={args.mood_threshold})")
+            attrs = result["attributes"]
+            tags = result["tags"]
+            summary_parts = []
+            if "bpm" in attrs:
+                summary_parts.append(f"bpm={attrs['bpm']}")
+            if "key" in attrs:
+                summary_parts.append(f"key={attrs['key']} {attrs.get('scale','')}")
+            if tags:
+                summary_parts.append("tags=[" + ", ".join(t.split("/")[-1].strip() for t in tags) + "]")
+            print(f"  {', '.join(summary_parts) or 'no results'}")
 
-        if args.verbose:
-            for k, v in attrs.items():
-                print(f"    {k}: {v}")
+            if args.dry_run and not args.no_mood:
+                MOOD_KEYS = [
+                    ("mood_happy", "happy"), ("mood_sad", "sad"), ("mood_relaxed", "relaxed"),
+                    ("mood_aggressive", "aggr"), ("mood_party", "party"), ("mood_acoustic", "acou"),
+                    ("mood_electronic", "elec"), ("danceability", "dance"),
+                ]
+                mood_parts = []
+                for key, label in MOOD_KEYS:
+                    if key in attrs:
+                        score = attrs[key]
+                        if not isinstance(score, (int, float)):
+                            mood_parts.append(f"{label}={score}")
+                            continue
+                        t = mood_thresholds.get(key, args.mood_threshold)
+                        flag = "*" if score >= t else " "
+                        t_note = f">{t}" if t != args.mood_threshold else ""
+                        mood_parts.append(f"{label}={score:.2f}{flag}{t_note}")
+                if mood_parts:
+                    print(f"  mood:  {' '.join(mood_parts)}  (default threshold={args.mood_threshold})")
 
-        attrs["essentia"] = 1
-        pending.append({"id": eid, "tags": tags, "attributes": attrs})
+            if args.verbose:
+                for k, v in attrs.items():
+                    print(f"    {k}: {v}")
 
-        if args.delay > 0 and i < total:
-            time.sleep(args.delay)
-
-        # Post in batches
-        if len(pending) >= args.batch_size:
+            attrs["essentia"] = 1
             if not args.dry_run:
-                r = client.bulk_update(pending, db=args.db)
+                r = client.bulk_update([{"id": eid, "tags": tags, "attributes": attrs}], db=args.db)
                 posted += r.get("updated", 0)
                 for err in r.get("errors", []):
                     print(f"  API error for id={err['id']}: {err['error']}", file=sys.stderr)
+                    # Fatal errors: database connection issues
+                    if "connection" in err["error"].lower() or "not open" in err["error"].lower():
+                        print("  Fatal: database connection lost. Exiting.", file=sys.stderr)
+                        sys.exit(1)
             else:
-                posted += len(pending)
-            pending.clear()
+                posted += 1
 
-    # Flush remaining
-    if pending:
-        if not args.dry_run:
-            r = client.bulk_update(pending, db=args.db)
-            posted += r.get("updated", 0)
-            for err in r.get("errors", []):
-                print(f"  API error for id={err['id']}: {err['error']}", file=sys.stderr)
-        else:
-            posted += len(pending)
+            if args.delay > 0 and i < total:
+                time.sleep(args.delay)
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
 
     mode = "[DRY RUN] " if args.dry_run else ""
     print(f"\n{mode}Done. Updated: {posted}  Failed: {failed}")
