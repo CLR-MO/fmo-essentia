@@ -84,19 +84,31 @@ class ClrmoClient:
 
         return total, _gen()
 
+    # ── Read single entity ──────────────────────────────────────────────────────
+
+    def get_entity(self, id: int, db: str | None = None) -> dict:
+        """GET /entities/:id"""
+        params: dict = {}
+        if db:
+            params["db"] = db
+        return self._get(f"/entities/{id}", **params)
+
     # ── Write ─────────────────────────────────────────────────────────────────
 
     def bulk_update(
         self,
         updates: list[dict],
         db: str | None = None,
+        add_only: bool = False,
     ) -> dict:
         """
-        POST /entities/bulk/update
+        POST /entities/bulk/update or /entities/bulk/add-attributes
 
         updates: [{"id": 123, "tags": ["/ mood / happy"], "attributes": {"bpm": 120}}, ...]
+        add_only: if True, only add new attributes without overwriting existing ones
         """
         body: dict = {"updates": updates}
         if db:
             body["db"] = db
-        return self._post("/entities/bulk/update", body)
+        path = "/entities/bulk/add-attributes" if add_only else "/entities/bulk/update"
+        return self._post(path, body)

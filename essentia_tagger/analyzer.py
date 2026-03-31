@@ -212,6 +212,12 @@ def analyze_file(
             # Store top class as attribute
             top_idx = int(np.argmax(probs))
             attributes[name] = classes[top_idx] if top_idx < len(classes) else str(top_idx)
+            # For danceability, also store the probability weights
+            if name == "danceability" and len(classes) == 2:
+                # classes are ["danceable", "not_danceable"]
+                # probs[0] = danceable probability, probs[1] = not_danceable probability
+                attributes["danceability_weight"] = round(float(probs[0]), 3)
+                attributes["not_danceability_weight"] = round(float(probs[1]), 3)
             prefix = spec.get("tag_prefix", "/ genre /")
             threshold = _thresholds.get(name, mood_threshold)
             if len(classes) == 2:

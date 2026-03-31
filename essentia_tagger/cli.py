@@ -63,6 +63,8 @@ def main():
                              "instead of reading the file a second time at 16 kHz")
     parser.add_argument("--skip-analyzed", action="store_true",
                         help="Skip entities that already have a 'bpm' attribute")
+    parser.add_argument("--no-overwrite", action="store_true",
+                        help="Only add new attributes, don't overwrite existing ones")
     parser.add_argument("--batch-size", type=int, default=20,
                         help="Number of results to POST per bulk update call (default: 20)")
     parser.add_argument("--dry-run", action="store_true",
@@ -244,7 +246,7 @@ def main():
 
             attrs["essentia"] = 1
             if not args.dry_run:
-                r = client.bulk_update([{"id": eid, "tags": tags, "attributes": attrs}], db=args.db)
+                r = client.bulk_update([{"id": eid, "tags": tags, "attributes": attrs}], db=args.db, add_only=args.no_overwrite)
                 posted += r.get("updated", 0)
                 for err in r.get("errors", []):
                     print(f"  API error for id={err['id']}: {err['error']}", file=sys.stderr)
