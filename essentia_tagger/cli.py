@@ -210,35 +210,25 @@ def main():
                 continue
 
             attrs = result["attributes"]
-            tags = result["tags"]
             summary_parts = []
             if "bpm" in attrs:
                 summary_parts.append(f"bpm={attrs['bpm']}")
             if "key" in attrs:
                 summary_parts.append(f"key={attrs['key']} {attrs.get('scale','')}")
-            if tags:
-                summary_parts.append("tags=[" + ", ".join(t.split("/")[-1].strip() for t in tags) + "]")
             print(f"  {', '.join(summary_parts) or 'no results'}")
 
             if args.dry_run and not args.no_mood:
-                MOOD_KEYS = [
-                    ("mood_happy", "happy"), ("mood_sad", "sad"), ("mood_relaxed", "relaxed"),
-                    ("mood_aggressive", "aggr"), ("mood_party", "party"), ("mood_acoustic", "acou"),
-                    ("mood_electronic", "elec"), ("danceability", "dance"),
-                ]
+                # Show all stored model weights
                 mood_parts = []
-                for key, label in MOOD_KEYS:
-                    if key in attrs:
-                        score = attrs[key]
-                        if not isinstance(score, (int, float)):
-                            mood_parts.append(f"{label}={score}")
-                            continue
-                        t = mood_thresholds.get(key, args.mood_threshold)
-                        flag = "*" if score >= t else " "
-                        t_note = f">{t}" if t != args.mood_threshold else ""
-                        mood_parts.append(f"{label}={score:.2f}{flag}{t_note}")
+                for key, value in attrs.items():
+                    if key in ("bpm", "key", "scale", "key_strength", "essentia"):
+                        continue
+                    if not isinstance(value, (int, float)):
+                        mood_parts.append(f"{key}={value}")
+                    else:
+                        mood_parts.append(f"{key}={value:.3f}")
                 if mood_parts:
-                    print(f"  mood:  {' '.join(mood_parts)}  (default threshold={args.mood_threshold})")
+                    print(f"  weights:  {' '.join(mood_parts)}")
 
             if args.verbose:
                 for k, v in attrs.items():
@@ -246,7 +236,7 @@ def main():
 
             attrs["essentia"] = 1
             if not args.dry_run:
-                r = client.bulk_update([{"id": eid, "tags": tags, "attributes": attrs}], db=args.db, add_only=args.no_overwrite)
+                r = client.bulk_update([{"id": eid, "attributes": attrs}], db=args.db, add_only=args.no_overwrite)
                 posted += r.get("updated", 0)
                 for err in r.get("errors", []):
                     print(f"  API error for id={err['id']}: {err['error']}", file=sys.stderr)

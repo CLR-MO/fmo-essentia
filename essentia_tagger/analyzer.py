@@ -146,8 +146,8 @@ def analyze_file(
     Returns:
         {
             "attributes": {"bpm": 120.3, "key": "C", "scale": "major",
-                           "mood_happy": 0.82, "voice_instrumental": 0.1, ...},
-            "tags": ["/ mood / happy", "/ genre / rock"],
+                           "mood_happy_conf": 0.82, "genre_electronic_conf": 0.75, "genre_rock_conf": 0.20, ...},
+            "tags": [],
         }
     """
     attributes: dict[str, Any] = {}
@@ -196,12 +196,7 @@ def analyze_file(
 
         if model_type == "binary":
             prob = _predict_binary(name, audio_16k, models_dir, filename=filename)
-            attributes[name] = round(prob, 3)
-            threshold = _thresholds.get(name, mood_threshold)
-            if prob >= threshold:
-                prefix = spec.get("tag_prefix", tag_prefix)
-                label = name.replace("mood_", "").replace("_", " ")
-                tags.append(f"{prefix} {label}".strip())
+            attributes[f"{name}_conf"] = round(prob, 3)
 
         elif model_type == "multiclass":
             classes = spec.get("classes", [])
@@ -209,26 +204,11 @@ def analyze_file(
                 continue
             output_node = spec.get("output", "model/Softmax")
             probs = _predict_multiclass(name, audio_16k, models_dir, output_node, filename=filename)
-            # Store top class as attribute
-            top_idx = int(np.argmax(probs))
-            attributes[name] = classes[top_idx] if top_idx < len(classes) else str(top_idx)
-            # For danceability, also store the probability weights
-            if name == "danceability" and len(classes) == 2:
-                # classes are ["danceable", "not_danceable"]
-                # probs[0] = danceable probability, probs[1] = not_danceable probability
-                attributes["danceability_weight"] = round(float(probs[0]), 3)
-                attributes["not_danceability_weight"] = round(float(probs[1]), 3)
-            prefix = spec.get("tag_prefix", "/ genre /")
-            threshold = _thresholds.get(name, mood_threshold)
-            if len(classes) == 2:
-                # Binary-like model (Sigmoid per class): both outputs can exceed the
-                # threshold simultaneously, so only tag the winning class.
-                tags.append(f"{prefix} {classes[top_idx]}".strip())
-            else:
-                # Multi-class: tag any class above threshold (e.g. multiple genres)
-                for idx, prob in enumerate(probs):
-                    if prob >= threshold and idx < len(classes):
-                        tags.append(f"{prefix} {classes[idx]}".strip())
+            # Store all class probabilities as attributes (e.g., genre_electronic_conf, genre_rock_conf, ...)
+            for idx, prob in enumerate(probs):
+                if idx < len(classes):
+                    class_name = classes[idx].replace(" ", "_")
+                    attributes[f"{name}_{class_name}_conf"] = round(float(prob), 3)
 
     return {"attributes": attributes, "tags": tags}
 
