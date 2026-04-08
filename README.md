@@ -8,8 +8,12 @@ via the REST API.
 ## Basic Usage
 Start REST api server on FMO app, then
 ```sh
+# download ai models
 python3 -m essentia_tagger.download_models
+# add confidence scores to entities using ai models
 python3 -m essentia_tagger.cli --skip-analyzed
+# based on confidence score attributes, add tags
+python3 -m essentia_tagger.cli --tag-analyzed
 ```
 
 ## What it detects
