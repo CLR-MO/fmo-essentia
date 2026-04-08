@@ -164,10 +164,21 @@ def analyze_file(
             attributes["bpm"] = round(float(bpm), 1)
 
         if run_key:
-            key, scale, strength = es.KeyExtractor()(audio_44k)
-            attributes["key"] = key
-            attributes["scale"] = scale
-            attributes["key_strength"] = round(float(strength), 3)
+            result = es.KeyExtractor()(audio_44k)
+            # KeyExtractor returns (key, scale, strength, second_key, second_scale, second_strength)
+            if len(result) >= 5:
+                key, scale, strength, second_key, second_scale, second_strength = result
+                attributes["key"] = key
+                attributes["scale"] = scale
+                attributes["key_strength"] = round(float(strength), 3)
+                if second_key and second_key != key:
+                    attributes["key_second"] = second_key
+                    attributes["key_second_strength"] = round(float(second_strength), 3)
+            else:
+                key, scale, strength = result
+                attributes["key"] = key
+                attributes["scale"] = scale
+                attributes["key_strength"] = round(float(strength), 3)
 
     # ── ML models (16 kHz) ────────────────────────────────────────────────────
     if not run_mood:

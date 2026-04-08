@@ -152,7 +152,7 @@ clrmo-tag
 # Preview without writing (dry run, shows mood scores)
 clrmo-tag --dry-run
 
-# Skip files already analyzed (have essentia=1 attribute)
+# Skip files already analyzed (have essentia attribute set)
 clrmo-tag --skip-analyzed
 
 # Only untagged audio entities (no / mood / tag yet)
@@ -180,18 +180,74 @@ clrmo-tag --url http://127.0.0.1:3283
 clrmo-tag --single-pass
 ```
 
+## Applying Mood Tags to Analyzed Entities
+
+After running `--skip-analyzed` to analyze audio files, use `--tag-analyzed` to apply mood tags based on the existing essentia attributes. This queries entities with `@essentia` (instead of `-@essentia`) and applies tagging rules derived from the analysis patterns.
+
+```bash
+# Apply mood tags to all analyzed entities
+clrmo-tag --tag-analyzed
+
+# Dry run to preview what would be tagged
+clrmo-tag --tag-analyzed --dry-run
+
+# Apply mood tags to a specific genre
+clrmo-tag --tag-analyzed --query "/ genre / jazz"
+
+# Custom tag prefix (default is "/mood/")
+clrmo-tag --tag-analyzed --tag-prefix "/ mood /"
+```
+
+### How it works
+
+1. Queries entities that have the `essentia` attribute set
+2. Fetches full entity data including essentia attributes
+3. Applies mood tagging rules based on attribute values:
+   - Rule 1: `sad > happy AND aggressive > 0.7` → `/mood/intense`
+   - Rule 2: `aggressive > 0.7` → `/mood/intense` or `/mood/energetic`
+   - Rule 3: `party > 0.7` → `/mood/party`
+   - Rule 4: `relaxed > 0.6 AND aggressive < 0.3` → `/mood/relaxed`, `/mood/calm`
+   - Rule 5: `acoustic > 0.9` with conditions → `/mood/acoustic` variants
+   - Rule 6: BPM thresholds → `/mood/slow`, `/mood/fast`
+   - Rule 7: MIREX classes → `/mood/intense`, `/mood/quirky`, `/mood/rousing`, `/mood/cheerful`, `/mood/brooding`
+   - Rule 8: `danceable > 0.6` → `/mood/danceable`
+4. Bulk-updates entities with the resulting mood tags
+
+### Recommended workflow
+
+1. Analyze new audio files:
+   ```bash
+   clrmo-tag --skip-analyzed
+   ```
+
+2. Apply mood tags to analyzed entities:
+   ```bash
+   clrmo-tag --tag-analyzed --dry-run  # Preview first
+   clrmo-tag --tag-analyzed
+   ```
+
+3. Target specific genres:
+   ```bash
+   clrmo-tag --tag-analyzed --query "/ genre / classical"
+   clrmo-tag --tag-analyzed --query "/ genre / jazz"
+   ```
+
 ## Resuming after interruption
 
-Every successfully analyzed file gets an `essentia = 1` attribute written back.
-Use `--skip-analyzed` to skip those on the next run:
+Every successfully analyzed file gets an `essentia = <unix_timestamp>` attribute
+written back. Use `--skip-analyzed` to skip those on the next run:
 
 ```bash
 clrmo-tag --skip-analyzed
 ```
 
-This adds `-@essentia:=:1` to the query, excluding any entity that already has
-the `essentia` attribute set to 1.  Entities with no `essentia` attribute (not
-yet processed) are always included.
+This adds `-@essentia` to the query, only processing entities that don't
+yet have an `essentia` attribute set.  You can also manually query for files
+analyzed after a certain time:
+
+```bash
+clrmo-tag --query "@essentia:>:1744060800"
+```
 
 ## CPU load and thermal management
 
