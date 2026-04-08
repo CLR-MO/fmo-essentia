@@ -5,18 +5,21 @@ results back to a [FMO](https://github.com/CLR-MO/fmo-tracker) entity database
 via the REST API.
 
 
-## Basic Usage
-Start REST api server on FMO app, then
+## Usage
+
 ```sh
-# download ai models
+# download ai models (one-time setup)
 python3 -m essentia_tagger.download_models
 # add confidence scores to entities using ai models
 python3 -m essentia_tagger.cli --skip-analyzed
+
+# Optionally,
 # based on confidence score attributes, add tags
 python3 -m essentia_tagger.cli --tag-analyzed
 ```
 
-## What it detects
+
+## What it Detects
 
 ### Algorithmic (no model files needed)
 
@@ -30,45 +33,68 @@ python3 -m essentia_tagger.cli --tag-analyzed
 All classifiers are configured in `models.toml`. Set `enabled = false` on any
 model to skip it for both download and analysis.
 
-**Binary** — raw probability (0–1) stored as an attribute; tag applied when probability ≥ threshold:
+**Confidence scores** are stored as attributes with `_conf` suffix (e.g., `mood_happy_conf`).
+**Tags are NOT applied during analysis** — only confidence scores are stored.
+Run `--tag-analyzed` separately to apply tags based on these scores.
 
-| Model | Attribute | Tag (if above threshold) |
+**Confidence scores** are stored as attributes with `_conf` suffix (e.g., `mood_happy_conf`).
+**Tags are NOT applied during analysis** — only confidence scores are stored.
+Run `--tag-analyzed` separately to apply tags based on these scores.
+
+**Binary models** — store raw probability (0–1):
+
+| Model | Attribute |
+|---|---|
+| `mood_happy` | `mood_happy_conf` |
+| `mood_sad` | `mood_sad_conf` |
+| `mood_relaxed` | `mood_relaxed_conf` |
+| `mood_aggressive` | `mood_aggressive_conf` |
+| `mood_party` | `mood_party_conf` |
+| `mood_acoustic` | `mood_acoustic_conf` |
+| `mood_electronic` | `mood_electronic_conf` |
+
+**Multiclass models** — store all class probabilities with `_classname_conf` suffix:
+
+| Model | Attribute pattern | Classes |
 |---|---|---|
-| `mood_happy` | `mood_happy` | `/ mood / happy` |
-| `mood_sad` | `mood_sad` | `/ mood / sad` |
-| `mood_relaxed` | `mood_relaxed` | `/ mood / relaxed` |
-| `mood_aggressive` | `mood_aggressive` | `/ mood / aggressive` |
-| `mood_party` | `mood_party` | `/ mood / party` |
-| `mood_acoustic` | `mood_acoustic` | `/ mood / acoustic` |
-| `mood_electronic` | `mood_electronic` | `/ mood / electronic` |
-
-**Multi-class** — top class stored as string attribute; tagging rules depend on the number of classes:
-
-- **2-class models** (`danceability`, `voice_instrumental`, `gender`, `tonal_atonal`) use a Sigmoid output, so both classes can independently exceed the threshold. Only the winning class (highest probability) is tagged to avoid contradictory tags like `danceable` + `not_danceable`.
-- **N-class models** (genre classifiers, `moods_mirex`) use a Softmax or multi-label output; any class above threshold is tagged.
-
-| Model | Attribute | Tag prefix | Classes |
-|---|---|---|---|
-| `moods_mirex` | `moods_mirex` | `/ mood /` | rousing, cheerful, brooding, quirky, intense |
-| `danceability` | `danceability` | `/ music /` | danceable, not_danceable |
-| `voice_instrumental` | `voice_instrumental` | `/ music /` | instrumental, vocal |
-| `gender` | `gender` | `/ vocal /` | female, male |
-| `tonal_atonal` | `tonal_atonal` | `/ music /` | atonal, tonal |
-| `genre_dortmund` | `genre_dortmund` | `/ genre /` | alternative, blues, electronic, folkcountry, funksoulrnb, jazz, pop, raphiphop, rock |
-| `genre_electronic` | `genre_electronic` | `/ genre / electronic /` | ambient, dnb, house, techno, trance |
-| `genre_rosamerica` | `genre_rosamerica` | `/ genre /` | classical, dance, hiphop, jazz, pop, rnb, rock, speech |
-| `genre_tzanetakis` | `genre_tzanetakis` | `/ genre /` | blues, classical, country, disco, hiphop, jazz, metal, pop, reggae, rock |
+| `moods_mirex` | `moods_mirex_<class>_conf` | intense, quirky, rousing, cheerful, brooding |
+| `danceability` | `danceability_<class>_conf` | danceable, not_danceable |
+| `voice_instrumental` | `voice_instrumental_<class>_conf` | instrumental, vocal |
+| `gender` | `gender_<class>_conf` | female, male |
+| `tonal_atonal` | `tonal_atonal_<class>_conf` | atonal, tonal |
+| `genre_dortmund` | `genre_dortmund_<class>_conf` | alternative, blues, electronic, ... |
+| `genre_electronic` | `genre_electronic_<class>_conf` | ambient, dnb, house, techno, trance |
+| `genre_rosamerica` | `genre_rosamerica_<class>_conf` | classical, dance, hiphop, jazz, ... |
+| `genre_tzanetakis` | `genre_tzanetakis_<class>_conf` | blues, classical, country, disco, ... |
 
 `fs_loop_ds` (loop role: bass/chords/fx/melody/percussion) is included but
 **disabled by default** — only useful for sample/loop libraries.
 
-> **Note on the progress display:** the per-file summary line shortens tags by
-> showing only the last path segment (e.g. `/ genre / electronic / dnb` appears
-> as `dnb`).  `dnb` = drum and bass from the `genre_electronic` classifier.
-> Full tag paths are always written to the database.
+> **Note on the progress display:** the per-file summary shortens attribute
+> names by removing the `_conf` suffix (e.g., `mood_happy_conf` appears as
+> `mood_happy`). Full attribute names are always written to the database.
 
-Raw probabilities are always stored as attributes so you can re-threshold later
-without re-analyzing.
+Confidence scores are always stored so you can re-threshold or change tagging
+rules without re-analyzing.
+
+
+## Tagging Rules (--tag-analyzed)
+
+The `--tag-analyzed` phase applies these rules based on confidence scores:
+
+| Rule | Condition | Tag(s) applied |
+|------|-----------|---------------|
+| Sad+Aggressive | `mood_sad_conf > mood_happy_conf AND mood_aggressive_conf > 0.7` | `/mood/intense` |
+| Happy | `mood_happy_conf > mood_sad_conf AND mood_happy_conf > 0.5` | `/mood/happy` |
+| High Aggressive | `mood_aggressive_conf > 0.7` | `/mood/energetic` or `/mood/intense` |
+| Party | `mood_party_conf > 0.7` | `/mood/party` |
+| Relaxed | `mood_relaxed_conf > 0.6 AND mood_aggressive_conf < 0.3` | `/mood/relaxed`, `/mood/calm` |
+| Acoustic | `mood_acoustic_conf > 0.9` with conditions | `/mood/acoustic` variants |
+| BPM < 90 | `bpm < 90` | `/mood/slow`, `/mood/ballad` |
+| BPM > 160 | `bpm > 160` | `/mood/fast`, `/mood/intense` |
+| MIREX classes | class confidence above threshold | `/mood/intense`, `/mood/quirky`, etc. |
+| Danceable | `danceability_danceable_conf > 0.6` | `/mood/danceable` |
+
 
 ## Installation
 
@@ -141,13 +167,10 @@ export PYTHONPATH="$PWD:$PYTHONPATH"
 
 python3 -m essentia_tagger.download_models
 python3 -m essentia_tagger.cli --skip-analyzed
-
 ```
 
-## Usage
 
-**Start the CLRMO REST API server** first: open the app → Tools → Servers →
-REST API Server → Start.
+## CLI Options
 
 ```bash
 # Tag all audio entities in the active database
@@ -184,57 +207,6 @@ clrmo-tag --url http://127.0.0.1:3283
 clrmo-tag --single-pass
 ```
 
-## Applying Mood Tags to Analyzed Entities
-
-After running `--skip-analyzed` to analyze audio files, use `--tag-analyzed` to apply mood tags based on the existing essentia attributes. This queries entities with `@essentia` (instead of `-@essentia`) and applies tagging rules derived from the analysis patterns.
-
-```bash
-# Apply mood tags to all analyzed entities
-clrmo-tag --tag-analyzed
-
-# Dry run to preview what would be tagged
-clrmo-tag --tag-analyzed --dry-run
-
-# Apply mood tags to a specific genre
-clrmo-tag --tag-analyzed --query "/ genre / jazz"
-
-# Custom tag prefix (default is "/mood/")
-clrmo-tag --tag-analyzed --tag-prefix "/ mood /"
-```
-
-### How it works
-
-1. Queries entities that have the `essentia` attribute set
-2. Fetches full entity data including essentia attributes
-3. Applies mood tagging rules based on attribute values:
-   - Rule 1: `sad > happy AND aggressive > 0.7` → `/mood/intense`
-   - Rule 2: `aggressive > 0.7` → `/mood/intense` or `/mood/energetic`
-   - Rule 3: `party > 0.7` → `/mood/party`
-   - Rule 4: `relaxed > 0.6 AND aggressive < 0.3` → `/mood/relaxed`, `/mood/calm`
-   - Rule 5: `acoustic > 0.9` with conditions → `/mood/acoustic` variants
-   - Rule 6: BPM thresholds → `/mood/slow`, `/mood/fast`
-   - Rule 7: MIREX classes → `/mood/intense`, `/mood/quirky`, `/mood/rousing`, `/mood/cheerful`, `/mood/brooding`
-   - Rule 8: `danceable > 0.6` → `/mood/danceable`
-4. Bulk-updates entities with the resulting mood tags
-
-### Recommended workflow
-
-1. Analyze new audio files:
-   ```bash
-   clrmo-tag --skip-analyzed
-   ```
-
-2. Apply mood tags to analyzed entities:
-   ```bash
-   clrmo-tag --tag-analyzed --dry-run  # Preview first
-   clrmo-tag --tag-analyzed
-   ```
-
-3. Target specific genres:
-   ```bash
-   clrmo-tag --tag-analyzed --query "/ genre / classical"
-   clrmo-tag --tag-analyzed --query "/ genre / jazz"
-   ```
 
 ## Resuming after interruption
 
@@ -252,6 +224,7 @@ analyzed after a certain time:
 ```bash
 clrmo-tag --query "@essentia:>:1744060800"
 ```
+
 
 ## CPU load and thermal management
 
@@ -279,6 +252,7 @@ half the throughput. Pass `--tf-threads 0` to remove the cap.
 **`--delay`** sleeps between each file. Even 0.5–1 s gives the CPU a
 meaningful thermal break without adding much total time on large libraries.
 If you are running other CPU-heavy processes concurrently, combine both flags.
+
 
 ## Useful CLRMO searches after tagging
 
@@ -406,6 +380,7 @@ attr:key_strength > 0.6
 / mood / gender  attr:voice_instrumental > 0.6
 ```
 
+
 ## API used
 
 All results are written via a single REST call per batch:
@@ -423,10 +398,9 @@ Content-Type: application/json
         "bpm": 120.3,
         "key": "C",
         "scale": "major",
-        "mood_happy": 0.83,
-        "mood_acoustic": 0.71,
-        "voice_instrumental": 0.12,
-        "genre_dortmund": "rock",
+        "mood_happy_conf": 0.83,
+        "mood_acoustic_conf": 0.71,
+        "genre_electronic_dnb_conf": 0.45,
         ...
       }
     },
@@ -437,6 +411,7 @@ Content-Type: application/json
 
 Tags are **added** (existing tags are preserved). Attributes are **merged**
 (existing keys not present in the payload are preserved).
+
 
 ## Models
 
@@ -449,6 +424,7 @@ Models are not bundled with this package. Run `clrmo-download-models` to
 fetch them (~50 MB total for all enabled models). The full list and
 enable/disable switches are in `models.toml`.
 
+
 ## Extending
 
 `analyzer.py` is designed to be easy to extend. Add new models directly to
@@ -458,6 +434,6 @@ enable/disable switches are in `models.toml`.
 from essentia_tagger.analyzer import analyze_file
 
 result = analyze_file("/path/to/song.mp3")
-print(result["attributes"])  # {"bpm": 120.3, "key": "C", "mood_happy": 0.83, ...}
-print(result["tags"])        # ["/ mood / happy", "/ mood / acoustic", "/ genre / rock"]
+print(result["attributes"])  # {"bpm": 120.3, "key": "C", "mood_happy_conf": 0.83, ...}
+print(result["tags"])        # [] (empty - tagging is done separately with --tag-analyzed)
 ```
