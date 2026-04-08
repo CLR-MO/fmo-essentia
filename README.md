@@ -1,7 +1,7 @@
-# clrmo-essentia-tagger
+# fmo-essentia-tagger
 
 Analyze music files with [Essentia](https://essentia.upf.edu) and write the
-results back to a [CLRMO](https://github.com/example/clrmo) entity database
+results back to a [FMO](https://github.com/CLR-MO/fmo-tracker) entity database
 via the REST API.
 
 
